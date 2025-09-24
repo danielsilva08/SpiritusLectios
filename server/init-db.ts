@@ -1,6 +1,7 @@
 import { db } from './db';
 import { books, users } from '@shared/schema';
 import bcrypt from 'bcrypt';
+import { eq } from 'drizzle-orm';
 
 async function main() {
   console.log('Seeding database...');
