@@ -5,12 +5,13 @@ export interface AuthStatus {
 }
 
 export interface LoginRequest {
+  username: string;
   password: string;
 }
 
 export const authService = {
-  async login(password: string): Promise<{ success: boolean; message: string }> {
-    const response = await apiRequest("POST", "/api/auth/login", { password });
+  async login(credentials: LoginRequest): Promise<{ success: boolean; message: string }> {
+    const response = await apiRequest("POST", "/api/auth/login", credentials);
     return response.json();
   },
 

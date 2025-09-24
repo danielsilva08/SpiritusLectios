@@ -1,10 +1,14 @@
 import type { Express, Request, Response, NextFunction } from "express";
 import { createServer, type Server } from "http";
+import path from "path";
 import session from "express-session";
-import { storage } from "./storage";
-import { insertBookSchema, loginSchema } from "@shared/schema";
+import SQLiteStoreFactory from "connect-sqlite3";
+import { storage, dbPath, dbDir } from "./storage";
+import { insertBookSchema, loginSchema, type Book } from "@shared/schema";
 import { z } from "zod";
-import createError from "http-errors";
+import { promisify } from "util";
+import createHttpError from "http-errors";
+import bcrypt from "bcrypt";
 
 declare module "express-session" {
   interface SessionData {
@@ -12,19 +16,21 @@ declare module "express-session" {
   }
 }
 
-interface HttpError extends Error {
-  status?: number;
-  errors?: any;
-}
-
 export async function registerRoutes(app: Express): Promise<Server> {
+  const SQLiteStore = SQLiteStoreFactory(session);
+
   // Session configuration
   app.use(session({
+    // A asserção de tipo `as session.Store` é necessária devido a uma incompatibilidade de tipos em `connect-sqlite3`
+    store: new SQLiteStore({
+      db: path.basename(dbPath), // Extrai apenas o nome do arquivo de forma mais segura
+      dir: dbDir // Usa o diretório resolvido
+    }) as session.Store,
     secret: process.env.SESSION_SECRET || "spiritus-lectoris-secret",
     resave: false,
     saveUninitialized: false,
     cookie: {
-      secure: false,
+      secure: process.env.NODE_ENV === "production",
       httpOnly: true,
       maxAge: 24 * 60 * 60 * 1000 // 24 hours
     }
@@ -42,31 +48,48 @@ export async function registerRoutes(app: Express): Promise<Server> {
   app.post("/api/auth/login", async (req, res, next) => {
     try {
       const { password } = loginSchema.parse(req.body);
+      const username = "admin"; // Username fixo, já que a UI não o solicita
       
-      if (password === "8847583") {
+      const user = await storage.getUserByUsername(username);
+
+      // Compara a senha fornecida com o hash armazenado de forma segura
+      if (user && await bcrypt.compare(password, user.password)) {
         req.session.authenticated = true;
         res.json({ success: true, message: "Login successful" });
       } else {
-        res.status(401).json({ message: "Invalid password" });
+        next(createHttpError(401, "Invalid username or password"));
       }
     } catch (error) {
+      if (error instanceof z.ZodError) {
+        return next(createHttpError(400, "Invalid login data", { cause: error.errors }));
+      }
       next(error);
     }
   });
 
   // Logout endpoint
-  app.post("/api/auth/logout", (req, res, next) => {
-    req.session.destroy((err) => {
-      if (err) {
-        return next(createError(500, "Could not log out"));
-      } else {
-        res.json({ message: "Logout successful" });
-      }
-    });
+  app.post("/api/auth/logout", async (req, res, next) => {
+    try {
+      // Promisify destroy to use async/await for cleaner error handling
+      const destroySession = promisify(req.session.destroy.bind(req.session));
+      await destroySession();
+      res.status(204).send(); // 204 No Content is more appropriate for a successful logout
+    } catch (err) {
+      next(createHttpError(500, "Could not log out", { cause: err }));
+    }
   });
 
   // Check authentication status
   app.get("/api/auth/status", (req, res) => {
+    // Desabilita o cache para este endpoint sensível.
+    // Isso garante que o cliente sempre obtenha o status de autenticação atual.
+    res.setHeader(
+      "Cache-Control",
+      "no-store, no-cache, must-revalidate, proxy-revalidate",
+    );
+    res.setHeader("Pragma", "no-cache");
+    res.setHeader("Expires", "0");
+    res.setHeader("Surrogate-Control", "no-store");
     res.json({ authenticated: !!req.session.authenticated });
   });
 
@@ -84,7 +107,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       
       res.json(books);
     } catch (error) {
-      next(createError(500, "Failed to retrieve books", { cause: error }));
+      next(createHttpError(500, "Failed to retrieve books", { cause: error }));
     }
   });
 
@@ -95,10 +118,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
       res.status(201).json(book);
     } catch (error) {
       if (error instanceof z.ZodError) {
-        res.status(400).json({ message: "Invalid book data", errors: error.errors });
-      } else {
-        next(createError(500, "Failed to create book", { cause: error }));
+        return next(createHttpError(400, "Invalid book data", { cause: error.errors }));
       }
+      next(createHttpError(500, "Failed to create book", { cause: error }));
     }
   });
 
@@ -106,34 +128,33 @@ export async function registerRoutes(app: Express): Promise<Server> {
     try {
       const { id } = req.params;
       const bookData = insertBookSchema.partial().parse(req.body);
-      const book = await storage.updateBook(Number(id), bookData);
+      const book = await storage.updateBook(id, bookData);
       
       if (!book) {
-        return res.status(404).json({ message: "Book not found" });
+        return next(createHttpError(404, "Book not found"));
       }
       
       res.json(book);
     } catch (error) {
       if (error instanceof z.ZodError) {
-        res.status(400).json({ message: "Invalid book data", errors: error.errors });
-      } else {
-        next(createError(500, "Failed to update book", { cause: error }));
+        return next(createHttpError(400, "Invalid book data", { cause: error.errors }));
       }
+      next(createHttpError(500, "Failed to update book", { cause: error }));
     }
   });
 
   app.delete("/api/books/:id", requireAuth, async (req, res, next) => {
     try {
       const { id } = req.params;
-      const deleted = await storage.deleteBook(Number(id));
+      const deleted = await storage.deleteBook(id);
       
       if (!deleted) {
-        return res.status(404).json({ message: "Book not found" });
+        return next(createHttpError(404, "Book not found"));
       }
       
-      res.json({ message: "Book deleted successfully" });
+      res.status(204).send(); // 204 No Content é mais apropriado para um delete bem-sucedido
     } catch (error) {
-      next(createError(500, "Failed to delete book", { cause: error }));
+      next(createHttpError(500, "Failed to delete book", { cause: error }));
     }
   });
 
@@ -141,52 +162,41 @@ export async function registerRoutes(app: Express): Promise<Server> {
   app.get("/api/books/stats", requireAuth, async (req, res, next) => {
     try {
       const books = await storage.getAllBooks();
-      const uniqueAuthors = Array.from(new Set(books.map(b => b.author)));
-      const today = new Date().toDateString();
-      const todayBooks = books.filter(b => new Date(b.createdAt).toDateString() === today);
+      const today = new Date();
+      today.setHours(0, 0, 0, 0);
+
+      const todayBooks = books.filter(b => b.createdAt >= today);
       
-      // Author frequency
-      const authorCounts: Record<string, number> = {};
-      books.forEach(book => {
-        authorCounts[book.author] = (authorCounts[book.author] || 0) + 1;
-      });
-      
-      const frequentAuthors = Object.entries(authorCounts)
-        .sort(([,a], [,b]) => b - a)
-        .slice(0, 5)
-        .map(([author, count]) => ({ author, count }));
+      const authorCounts = books.reduce((acc: Record<string, number>, book: Book) => {
+        acc[book.author] = (acc[book.author] || 0) + 1;
+        return acc;
+      }, {});
 
       res.json({
         totalBooks: books.length,
-        uniqueAuthors: uniqueAuthors.length,
+        uniqueAuthors: Object.keys(authorCounts).length,
         todayBooks: todayBooks.length,
         uniqueISBNs: Array.from(new Set(books.map(b => b.isbn))).length,
-        frequentAuthors,
+        frequentAuthors: Object.entries(authorCounts)
+          .sort(([, a], [, b]) => b - a)
+          .slice(0, 5)
+          .map(([author, count]) => ({ author, count })),
         recentBooks: books.slice(0, 5)
       });
     } catch (error) {
-      next(createError(500, "Failed to retrieve statistics", { cause: error }));
+      next(createHttpError(500, "Failed to retrieve statistics", { cause: error }));
     }
   });
 
   // Centralized error handler
-  app.use((err: HttpError, req: Request, res: Response, next: NextFunction) => {
-    // Log the full error for debugging
-    console.error(`[${new Date().toISOString()}] ERROR on ${req.method} ${req.originalUrl}:`, err);
-
-    // Handle Zod validation errors
+  app.use((err: any, _req: Request, res: Response, _next: NextFunction) => {
     if (err instanceof z.ZodError) {
-      return res.status(400).json({ message: "Invalid request data", errors: err.errors });
+      return res.status(400).json({ message: "Validation failed", errors: err.flatten().fieldErrors });
     }
-
-    // Handle http-errors
-    if (createError.isHttpError(err)) {
-      return res.status(err.status).json({ message: err.message });
-    }
-
-    // Default to 500 for any other errors
-    const statusCode = err.status || 500;
-    res.status(statusCode).json({ message: err.message || "Internal Server Error" });
+    
+    const status = err.status || 500;
+    const message = err.message || "Internal Server Error";
+    res.status(status).json({ message });
   });
 
   const httpServer = createServer(app);

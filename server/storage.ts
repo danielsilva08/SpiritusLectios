@@ -1,7 +1,12 @@
 import { users, books, type User, type InsertUser, type Book, type InsertBook } from "@shared/schema";
 import { randomUUID } from "crypto";
+import path from "path";
 import { db } from "./db";
+import bcrypt from "bcrypt";
 import { eq, or, ilike, desc } from "drizzle-orm";
+
+export const dbPath = path.join(process.cwd(), "db.sqlite");
+export const dbDir = path.dirname(dbPath);
 
 export interface IStorage {
   getUser(id: string): Promise<User | undefined>;
@@ -106,9 +111,10 @@ export class DatabaseStorage implements IStorage {
   }
 
   async createUser(insertUser: InsertUser): Promise<User> {
+    const hashedPassword = await bcrypt.hash(insertUser.password, 10); // Gera o hash da senha
     const [user] = await db
       .insert(users)
-      .values(insertUser)
+      .values({ ...insertUser, password: hashedPassword }) // Salva o hash
       .returning();
     return user;
   }
@@ -143,13 +149,12 @@ export class DatabaseStorage implements IStorage {
   }
 
   async deleteBook(id: string): Promise<boolean> {
-    // First, check if the book exists
-    const existing = await this.getBook(id);
-    if (!existing) {
-      return false;
-    }
-    await db.delete(books).where(eq(books.id, id));
-    return true;
+    // Otimização: executa a exclusão e verifica se alguma linha foi afetada.
+    // Isso evita uma consulta SELECT extra para verificar a existência.
+    // O objeto de resultado do Drizzle varia por driver, mas para `node-postgres` e `better-sqlite3`,
+    // podemos verificar `rowCount` ou `changes` para confirmar a exclusão.
+    const result = await db.delete(books).where(eq(books.id, id));
+    return (result as any).rowCount > 0 || (result as any).changes > 0;
   }
 
   async searchBooks(query: string): Promise<Book[]> {

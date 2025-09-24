@@ -40,6 +40,11 @@ export const insertBookSchema = createInsertSchema(books, {
     .regex(/^[0-9-]{10,17}$/, "ISBN inválido."),
 }).omit({ id: true, createdAt: true, updatedAt: true });
 
+export const legacyLoginSchema = z.object({
+  username: z.string().min(1, "O nome de usuário é obrigatório."),
+  password: z.string().min(1, "A senha é obrigatória."),
+});
+
 export const loginSchema = z.object({
   password: z.string().min(1, "A senha é obrigatória."),
 });
@@ -48,4 +53,4 @@ export type InsertUser = z.infer<typeof insertUserSchema>;
 export type User = typeof users.$inferSelect;
 export type InsertBook = z.infer<typeof insertBookSchema>;
 export type Book = typeof books.$inferSelect;
-export type LoginRequest = z.infer<typeof loginSchema>;
+export type LoginRequest = z.infer<typeof legacyLoginSchema>;

@@ -4,10 +4,10 @@ import * as schema from "@shared/schema";
 import path from "node:path";
 import fs from "node:fs";
 
-const dbPath = process.env.DATABASE_URL || "./dev.db";
+export const dbPath = process.env.DATABASE_URL || "dev.db";
 
 // Garante que o diretório do banco de dados exista antes de criar a conexão.
-const dbDir = path.dirname(dbPath);
+export const dbDir = path.dirname(dbPath);
 if (!fs.existsSync(dbDir)) {
   fs.mkdirSync(dbDir, { recursive: true });
 }
