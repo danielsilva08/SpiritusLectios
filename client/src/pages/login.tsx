@@ -16,7 +16,7 @@ export default function Login() {
   const queryClient = useQueryClient();
 
   const loginMutation = useMutation({
-    mutationFn: (password: string) => authService.login(password),
+    mutationFn: (password: string) => authService.login({ username: "admin", password }),
     onSuccess: (data) => {
       if (data.success) {
         queryClient.invalidateQueries({ queryKey: ['/api/auth/status'] });
