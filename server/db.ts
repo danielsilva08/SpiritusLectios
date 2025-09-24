@@ -1,5 +1,5 @@
 import { drizzle } from 'drizzle-orm/node-postgres';
-import pg from 'pg'; // Use a importação padrão para compatibilidade com CJS
+import pg from 'pg';
 import * as schema from "@shared/schema";
 
 if (!process.env.DATABASE_URL) {
@@ -7,9 +7,8 @@ if (!process.env.DATABASE_URL) {
 }
 
 // Acessa a classe Pool através da propriedade do objeto importado
-const { Pool } = pg;
 
-export const pool = new Pool({
+export const pool = new pg.Pool({
   connectionString: process.env.DATABASE_URL,
 });
 

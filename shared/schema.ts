@@ -1,28 +1,28 @@
 import {
-  sqliteTable,
+  pgTable,
   text,
   integer,
-} from "drizzle-orm/sqlite-core";
+  timestamp,
+} from "drizzle-orm/pg-core";
 import { sql } from "drizzle-orm";
 import { createInsertSchema } from "drizzle-zod";
 import { z } from "zod";
 
-export const users = sqliteTable("users", {
+export const users = pgTable("users", {
   id: integer("id").primaryKey({ autoIncrement: true }),
   username: text("username").notNull().unique(),
   password: text("password").notNull(),
 });
 
-export const books = sqliteTable("books", {
+export const books = pgTable("books", {
   id: integer("id").primaryKey({ autoIncrement: true }),
   name: text("name").notNull(),
   author: text("author").notNull(),
   isbn: text("isbn").notNull(),
-  createdAt: integer("created_at", { mode: "timestamp" })
-    .default(sql`(strftime('%s', 'now'))`)
+  createdAt: timestamp("created_at", { mode: "date" })
+    .default(sql`now()`)
     .notNull(),
-  updatedAt: integer("updated_at", { mode: "timestamp" })
-    .$onUpdate(() => new Date())
+  updatedAt: timestamp("updated_at", { mode: "date" }) // O gatilho do banco de dados cuidará da atualização
     .notNull(),
 });
 
