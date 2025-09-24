@@ -1,16 +1,16 @@
-import { drizzle } from "drizzle-orm/better-sqlite3";
-import Database from "better-sqlite3";
+import { drizzle } from 'drizzle-orm/node-postgres';
+import pg from 'pg'; // Use a importação padrão para compatibilidade com CJS
 import * as schema from "@shared/schema";
-import path from "node:path";
-import fs from "node:fs";
 
-export const dbPath = process.env.DATABASE_URL || "dev.db";
-
-// Garante que o diretório do banco de dados exista antes de criar a conexão.
-export const dbDir = path.dirname(dbPath);
-if (!fs.existsSync(dbDir)) {
-  fs.mkdirSync(dbDir, { recursive: true });
+if (!process.env.DATABASE_URL) {
+  throw new Error("DATABASE_URL is not set in environment variables");
 }
 
-const sqlite = new Database(dbPath);
-export const db = drizzle(sqlite, { schema });
+// Acessa a classe Pool através da propriedade do objeto importado
+const { Pool } = pg;
+
+export const pool = new Pool({
+  connectionString: process.env.DATABASE_URL,
+});
+
+export const db = drizzle(pool, { schema });

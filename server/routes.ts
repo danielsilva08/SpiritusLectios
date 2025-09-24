@@ -1,14 +1,16 @@
 import type { Express, Request, Response, NextFunction } from "express";
 import { createServer, type Server } from "http";
-import path from "path";
+import path, { dirname } from "path";
 import session from "express-session";
-import SQLiteStoreFactory from "connect-sqlite3";
-import { storage, dbPath, dbDir } from "./storage";
+import PgSimple from "connect-pg-simple";
+import { storage } from "./storage";
 import { insertBookSchema, loginSchema, type Book } from "@shared/schema";
 import { z } from "zod";
 import { promisify } from "util";
 import createHttpError from "http-errors";
+import express from "express";
 import bcrypt from "bcrypt";
+import { pool } from "./db";
 
 declare module "express-session" {
   interface SessionData {
@@ -17,15 +19,17 @@ declare module "express-session" {
 }
 
 export async function registerRoutes(app: Express): Promise<Server> {
-  const SQLiteStore = SQLiteStoreFactory(session);
+  // Configuração para servir arquivos estáticos do cliente React em produção
+  const isProduction = process.env.NODE_ENV === "production";
+  if (process.env.NODE_ENV === "production") {
+    const clientDistPath = path.join(process.cwd(), "client", "dist");
+    app.use(express.static(clientDistPath));
+  }
+  const PgStore = PgSimple(session);
 
   // Session configuration
   app.use(session({
-    // A asserção de tipo `as session.Store` é necessária devido a uma incompatibilidade de tipos em `connect-sqlite3`
-    store: new SQLiteStore({
-      db: path.basename(dbPath), // Extrai apenas o nome do arquivo de forma mais segura
-      dir: dbDir // Usa o diretório resolvido
-    }) as session.Store,
+    store: new PgStore({ pool }),
     secret: process.env.SESSION_SECRET || "spiritus-lectoris-secret",
     resave: false,
     saveUninitialized: false,
@@ -198,6 +202,14 @@ export async function registerRoutes(app: Express): Promise<Server> {
     const message = err.message || "Internal Server Error";
     res.status(status).json({ message });
   });
+
+  // Em produção, qualquer rota que não seja da API deve servir o index.html do React
+  // Isso é crucial para o roteamento do lado do cliente (wouter) funcionar corretamente.
+  if (process.env.NODE_ENV === "production") {
+    app.get("*", (_req, res) => {
+      res.sendFile(path.resolve(process.cwd(), "client", "dist", "index.html"));
+    });
+  }
 
   const httpServer = createServer(app);
   return httpServer;

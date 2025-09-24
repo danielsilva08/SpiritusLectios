@@ -1,4 +1,5 @@
-import { db } from './db';
+import "dotenv/config";
+import { db, pool } from './db';
 import { books, users } from '@shared/schema';
 import bcrypt from 'bcrypt';
 import { eq } from 'drizzle-orm';
@@ -34,6 +35,9 @@ async function main() {
   }
 
   console.log('Database seeding complete.');
+
+  // Encerra o pool de conexões para que o script finalize
+  await pool.end();
 }
 
 main().catch(console.error);
