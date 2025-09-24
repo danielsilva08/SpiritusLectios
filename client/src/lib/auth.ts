@@ -15,9 +15,11 @@ export const authService = {
     return response.json();
   },
 
-  async logout(): Promise<{ message: string }> {
+  async logout(): Promise<void> {
     const response = await apiRequest("POST", "/api/auth/logout");
-    return response.json();
+    if (!response.ok) {
+      throw new Error("Logout failed");
+    }
   },
 
   async getStatus(): Promise<AuthStatus> {
